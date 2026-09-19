@@ -1,0 +1,20 @@
+{
+  "name": "本地 EchoMusic 插件源",
+  "homepage": "",
+  "plugins": [
+    {
+      "id": "kugou-sign",
+      "name": "签到",
+      "path": "kugou-sign",
+      "homepage": "https://github.com/yunzaiorg/kugou-sign/tree/main/kugou-sign",
+      "tags": []
+    },
+    {
+      "id": "kugou-youth-checkin",
+      "name": "酷狗概念版每日领取",
+      "path": "kugou-youth-checkin",
+      "homepage": "",
+      "tags": ["酷狗", "概念版", "每日领取"]
+    }
+  ]
+}
