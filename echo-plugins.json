@@ -1,0 +1,13 @@
+{
+  "name": "酷狗签到插件源",
+  "homepage": "https://github.com/zhangye151/kgcheckin",
+  "plugins": [
+    {
+      "id": "kugou-checkin",
+      "name": "酷狗概念版签到",
+      "path": "kugou-checkin",
+      "homepage": "https://github.com/zhangye151/kgcheckin",
+      "tags": ["签到", "酷狗", "VIP"]
+    }
+  ]
+}
