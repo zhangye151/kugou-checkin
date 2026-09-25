@@ -1,6 +1,6 @@
-# 酷狗概念版自动签到插件（echomusic 插件）
+# 酷狗概念版自动签到插件（EchoMusic 插件）
 
-基于 [zhangye151/kgcheckin](https://github.com/zhangye151/kgcheckin) 的签到逻辑，移植为 EchoMusic（酷狗概念版）插件。
+酷狗概念版自动签到插件（EchoMusic 插件）。
 
 **无需激活码 / 卡密**，直接使用你当前在 EchoMusic 里登录的酷狗账号完成每日签到。
 
