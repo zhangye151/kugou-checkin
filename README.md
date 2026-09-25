@@ -36,8 +36,9 @@ https://github.com/zhangye151/kugou-checkin
 ```
 kugou-checkin/
 ├── index.js      插件主体（自包含，无外部依赖）
-├── manifest.json 插件清单
-└── README.md
+└── manifest.json 插件清单
+echo-plugins.json
+README.md
 ```
 
 ## 实现说明
