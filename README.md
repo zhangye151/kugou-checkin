@@ -17,8 +17,14 @@
 
 ## 安装
 
+方式一
+添加插件源：设置-插件-管理面板-点击小云朵
+```
+https://github.com/zhangye151/kugou-checkin
+```
+方式二
 把整个 `kugou-checkin` 文件夹放到 EchoMusic 的插件目录里，然后在插件管理页启用：
-
+如 MacOS
 ```
 ~/Library/Application Support/echo-music/plugins/kugou-checkin/
 ```
