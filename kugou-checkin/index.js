@@ -202,15 +202,6 @@ async function listenSong(cookie) {
     tolerateError: true,
   });
 }
-async function watchAd(cookie) {
-  const t = Date.now();
-  return kgRequest({
-    url: '/youth/v1/ad/play_report', method: 'POST',
-    data: { ad_id: 12307537187, play_end: t, play_start: t - 30000 },
-    cookie,
-    tolerateError: true,
-  });
-}
 async function getVipDetail(cookie) {
   return kgRequest({
     baseURL: 'https://kugouvip.kugou.com',
@@ -224,8 +215,6 @@ async function getVipDetail(cookie) {
 const ERROR_TEXT = {
   130012: '听歌奖励今日已领取',
   130011: '听歌奖励今日尚未开始',
-  30002: '今日广告次数已用完',
-  20028: '广告奖励今日已领取',
 };
 function friendlyText(body) {
   if (!body) return '未知错误';
@@ -302,8 +291,8 @@ function startTask(label) {
     taskDisposer = ctx.tasks.register({
       id: TASK_ID, name: '酷狗签到',
       icon: ctx.icons && ctx.icons.iconStar,
-      status: 'running', retention: 'action-required', priority: 10,
-      progress: { done: 0, total: 4, percent: 0, label: label || '正在签到' },
+      status: 'running', retention: 'transient', priority: 10,
+      progress: { done: 0, total: 3, percent: 0, label: label || '正在签到' },
     });
   } catch (e) { taskDisposer = null; }
 }
@@ -339,37 +328,21 @@ async function runSign(state, opts = {}) {
   startTask('验证 token');
   try {
     // 1. 验证 token
-    updateTask({ progress: { done: 0, total: 4, percent: 0, label: '验证 token' } });
+    updateTask({ progress: { done: 0, total: 3, percent: 0, label: '验证 token' } });
     const userInfo = await getUserDetail(auth);
     const nickname = (userInfo && userInfo.data && userInfo.data.nickname) || '未知用户';
     log(`账号：${nickname}`);
 
     // 2. 听歌领 VIP（以"今天签没签过"为准，今天没签就执行，不看当前 VIP 是否还有效，避免晚上断档）
     setStatus('loading', '听歌领取 VIP...');
-    updateTask({ progress: { done: 1, total: 4, percent: 25, label: '听歌领取' } });
+    updateTask({ progress: { done: 1, total: 3, percent: 33, label: '听歌领取' } });
     const listen = await listenSong(auth);
     if (listen.status === 1) log('听歌领取成功');
     else log('听歌：' + friendlyText(listen));
 
-    // 4. 看广告领 VIP（最多 8 次，成功后间隔 30s）
-    setStatus('loading', '看广告领取 VIP...');
-    updateTask({ progress: { done: 2, total: 4, percent: 50, label: '广告领取' } });
-    let adCount = 0;
-    for (let j = 1; j <= 8; j++) {
-      const ad = await watchAd(auth);
-      if (ad.status === 1) {
-        adCount++;
-        log(`第 ${j} 次广告领取成功`);
-        if (j < 8) await sleep(30 * 1000);
-      } else {
-        log('广告：' + friendlyText(ad));
-        break;
-      }
-    }
-
-    // 5. 查询会员到期时间（畅听/概念等）
+    // 3. 查询会员到期时间（畅听/概念等）
     setStatus('loading', '查询会员到期时间...');
-    updateTask({ progress: { done: 3, total: 4, percent: 75, label: '查询会员' } });
+    updateTask({ progress: { done: 2, total: 3, percent: 66, label: '查询会员' } });
     try {
       const vipList = await getVipList(auth);
       state.vipList.value = vipList;
@@ -385,8 +358,8 @@ async function runSign(state, opts = {}) {
     const today = todayStr();
     await ctx.storage.set('kugou-checkin:lastSignDate', today);
     state.lastSignDate.value = today;
-    setStatus('success', adCount > 0 ? `签到完成（领 ${adCount} 次广告）` : '签到完成');
-    finishTask('completed', { progress: { done: 4, total: 4, percent: 100, label: '签到完成' } });
+    setStatus('success', '签到完成');
+    finishTask('completed', { progress: { done: 3, total: 3, percent: 100, label: '签到完成' } });
     toastApi.success('酷狗签到完成');
   } catch (err) {
     log('签到失败：' + (err.message || err));
@@ -501,7 +474,7 @@ function buildComponent() {
           card,
           vipRows,
           h('div', { style: { fontSize: '12px', color: 'var(--color-text-secondary,#999)', padding: '4px 4px 0' } },
-            '每日听歌 + 看广告领取 VIP，使用当前登录账号'),
+            '每日听歌签到领取 VIP，使用当前登录账号'),
           logsNode,
         ]);
       };
@@ -532,12 +505,22 @@ export default async function (appCtx) {
   try {
     const last = await ctx.storage.get('kugou-checkin:lastSignDate') || '';
     if (last !== todayStr()) {
-      // 延迟一点，等 app 就绪
-      setTimeout(() => runSign({
-        status: { value: 'idle' }, statusText: { value: '自动签到' },
-        logs: { value: [] }, busy: { value: false }, lastSignDate: { value: last },
-        vipList: { value: [] },
-      }, { auto: true }), 1500);
+      // 轮询等待登录态就绪，最多等 15 秒
+      let waited = 0;
+      const timer = setInterval(() => {
+        waited += 1000;
+        const auth = getAuth();
+        if (auth.token) {
+          clearInterval(timer);
+          runSign({
+            status: { value: 'idle' }, statusText: { value: '自动签到' },
+            logs: { value: [] }, busy: { value: false }, lastSignDate: { value: last },
+            vipList: { value: [] },
+          }, { auto: true });
+        } else if (waited >= 15000) {
+          clearInterval(timer);
+        }
+      }, 1000);
     }
   } catch (e) { /* 自动签到失败不阻塞 */ }
 }
