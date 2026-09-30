@@ -1,7 +1,7 @@
 {
   "id": "kugou-checkin",
   "name": "酷狗签到",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "酷狗概念版每日自动签到（听歌 + 看广告领 VIP），无需激活码",
   "author": "kgcheckin-port",
   "main": "index.js",
