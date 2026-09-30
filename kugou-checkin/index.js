@@ -283,25 +283,7 @@ async function refreshVipList(state) {
 }
 
 // ---------------- 签到流程 ----------------
-const TASK_ID = 'kugou-checkin-sign';
-let taskDisposer = null;
-
-function startTask(label) {
-  try {
-    taskDisposer = ctx.tasks.register({
-      id: TASK_ID, name: '酷狗签到',
-      icon: ctx.icons && ctx.icons.iconStar,
-      status: 'running', retention: 'transient', priority: 10,
-      progress: { done: 0, total: 3, percent: 0, label: label || '正在签到' },
-    });
-  } catch (e) { taskDisposer = null; }
-}
-function updateTask(patch) { if (taskDisposer) taskDisposer.update(patch); }
-function finishTask(status, patch) {
-  if (taskDisposer) { taskDisposer.finish(status, patch); taskDisposer = null; }
-}
-function dismissTask() { if (taskDisposer) { taskDisposer.dismiss(); taskDisposer = null; } }
-
+// 全程静默：不在 echomusic 任务中心注册任何任务，状态只在插件设置页展示
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -325,24 +307,20 @@ async function runSign(state, opts = {}) {
   }
   log(`已获取账号 userid=${auth.userid}`);
 
-  startTask('验证 token');
   try {
     // 1. 验证 token
-    updateTask({ progress: { done: 0, total: 3, percent: 0, label: '验证 token' } });
     const userInfo = await getUserDetail(auth);
     const nickname = (userInfo && userInfo.data && userInfo.data.nickname) || '未知用户';
     log(`账号：${nickname}`);
 
     // 2. 听歌领 VIP（以"今天签没签过"为准，今天没签就执行，不看当前 VIP 是否还有效，避免晚上断档）
     setStatus('loading', '听歌领取 VIP...');
-    updateTask({ progress: { done: 1, total: 3, percent: 33, label: '听歌领取' } });
     const listen = await listenSong(auth);
     if (listen.status === 1) log('听歌领取成功');
     else log('听歌：' + friendlyText(listen));
 
     // 3. 查询会员到期时间（畅听/概念等）
     setStatus('loading', '查询会员到期时间...');
-    updateTask({ progress: { done: 2, total: 3, percent: 66, label: '查询会员' } });
     try {
       const vipList = await getVipList(auth);
       state.vipList.value = vipList;
@@ -359,15 +337,10 @@ async function runSign(state, opts = {}) {
     await ctx.storage.set('kugou-checkin:lastSignDate', today);
     state.lastSignDate.value = today;
     setStatus('success', '签到完成');
-    finishTask('completed', { progress: { done: 3, total: 3, percent: 100, label: '签到完成' } });
-    toastApi.success('酷狗签到完成');
+    if (!auto) toastApi.success('酷狗签到完成');
   } catch (err) {
     log('签到失败：' + (err.message || err));
     setStatus('error', '签到失败');
-    finishTask('error', {
-      error: String(err.message || err),
-      actions: [{ id: 'retry', label: '重试', variant: 'primary', onClick: () => runSign(state, { force: true }) }],
-    });
     if (!auto) toastApi.danger('签到失败：' + (err.message || err));
   } finally {
     state.busy.value = false;
@@ -499,7 +472,6 @@ export default async function (appCtx) {
     component: Component,
   });
 
-  ctx.dispose(() => { dismissTask(); });
 
   // 启动时自动签到一次（若今日未签过）
   try {
