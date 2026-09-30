@@ -202,6 +202,15 @@ async function listenSong(cookie) {
     tolerateError: true,
   });
 }
+async function watchAd(cookie) {
+  const t = Date.now();
+  return kgRequest({
+    url: '/youth/v1/ad/play_report', method: 'POST',
+    data: { ad_id: 12307537187, play_end: t, play_start: t - 30000 },
+    cookie,
+    tolerateError: true,
+  });
+}
 async function getVipDetail(cookie) {
   return kgRequest({
     baseURL: 'https://kugouvip.kugou.com',
@@ -215,6 +224,8 @@ async function getVipDetail(cookie) {
 const ERROR_TEXT = {
   130012: '听歌奖励今日已领取',
   130011: '听歌奖励今日尚未开始',
+  30002: '今日广告次数已用完',
+  20028: '广告奖励今日已领取',
 };
 function friendlyText(body) {
   if (!body) return '未知错误';
@@ -319,7 +330,22 @@ async function runSign(state, opts = {}) {
     if (listen.status === 1) log('听歌领取成功');
     else log('听歌：' + friendlyText(listen));
 
-    // 3. 查询会员到期时间（畅听/概念等）
+    // 3. 看广告领 VIP（静默执行：不注册任务、不弹提示；最多 8 次，成功后间隔 30s）
+    setStatus('loading', '看广告领取 VIP...');
+    let adCount = 0;
+    for (let j = 1; j <= 8; j++) {
+      const ad = await watchAd(auth);
+      if (ad.status === 1) {
+        adCount++;
+        log(`第 ${j} 次广告领取成功`);
+        if (j < 8) await sleep(30 * 1000);
+      } else {
+        log('广告：' + friendlyText(ad));
+        break;
+      }
+    }
+
+    // 4. 查询会员到期时间（畅听/概念等）
     setStatus('loading', '查询会员到期时间...');
     try {
       const vipList = await getVipList(auth);
@@ -447,7 +473,7 @@ function buildComponent() {
           card,
           vipRows,
           h('div', { style: { fontSize: '12px', color: 'var(--color-text-secondary,#999)', padding: '4px 4px 0' } },
-            '每日听歌签到领取 VIP，使用当前登录账号'),
+            '每日听歌 + 看广告领取 VIP，使用当前登录账号'),
           logsNode,
         ]);
       };
