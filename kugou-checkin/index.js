@@ -297,9 +297,25 @@ async function refreshVipList(state) {
 // 全程静默：不在 echomusic 任务中心注册任何任务，状态只在插件设置页展示
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+// 把到期/续签时间戳格式化为"约 X 小时 X 分后（HH:mm）"
+function formatRenewAt(ts) {
+  const diff = Math.max(0, ts - Date.now());
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const when = h > 0 ? `约 ${h} 小时 ${m} 分后` : (m > 0 ? `约 ${m} 分后` : '即将');
+  return `${when}（${hh}:${mm}）`;
+}
+
+// 全局签到互斥：启动签到、后台续签、手动签到共用，避免并发重复请求
+let signing = false;
 
 async function runSign(state, opts = {}) {
   const { auto = false, force = false } = opts;
+  if (signing) return;
+  signing = true;
   state.busy.value = true;
   state.logs.value = [];
   const log = msg => {
@@ -314,6 +330,7 @@ async function runSign(state, opts = {}) {
     setStatus('error', '未登录');
     if (!auto) toastApi.danger('未获取到登录凭证，请先在 EchoMusic 中登录酷狗概念版');
     state.busy.value = false;
+    signing = false;
     return;
   }
   log(`已获取账号 userid=${auth.userid}`);
@@ -370,6 +387,7 @@ async function runSign(state, opts = {}) {
     if (!auto) toastApi.danger('签到失败：' + (err.message || err));
   } finally {
     state.busy.value = false;
+    signing = false;
   }
 }
 
@@ -383,11 +401,15 @@ function buildComponent() {
     busy: ref(false),
     lastSignDate: ref(''),
     vipList: ref([]),
+    nextRenewAt: ref(''),
   };
 
   return defineComponent({
     setup() {
       refreshVipList(state);
+      ctx.storage.get('kugou-checkin:nextRenewAt').then(ts => {
+        if (ts) state.nextRenewAt.value = formatRenewAt(ts);
+      }).catch(() => {});
       return () => {
         const st = state.status.value;
         const bg = st === 'success'
@@ -472,6 +494,10 @@ function buildComponent() {
           h('div', { style: { fontSize: '16px', fontWeight: 600, marginBottom: '4px' } }, '酷狗概念版签到'),
           card,
           vipRows,
+          state.nextRenewAt.value
+            ? h('div', { style: { fontSize: '12px', color: 'var(--color-text-secondary,#999)', padding: '4px 4px 0' } },
+                '下次自动续签：' + state.nextRenewAt.value)
+            : null,
           h('div', { style: { fontSize: '12px', color: 'var(--color-text-secondary,#999)', padding: '4px 4px 0' } },
             '每日听歌 + 看广告领取 VIP，使用当前登录账号'),
           logsNode,
@@ -499,26 +525,93 @@ export default async function (appCtx) {
   });
 
 
-  // 启动时自动签到一次（若今日未签过）
-  try {
-    const last = await ctx.storage.get('kugou-checkin:lastSignDate') || '';
-    if (last !== todayStr()) {
-      // 轮询等待登录态就绪，最多等 15 秒
-      let waited = 0;
-      const timer = setInterval(() => {
-        waited += 1000;
+  // ---------------- 会员续期循环 ----------------
+  // 到期前提前量：会员最先到期时间前 3 小时自动续签（可改为 1 小时 / 2 小时）
+  const RENEW_LEAD_MS = 3 * 60 * 60 * 1000;
+  // setTimeout 单次上限保护（约 24.8 天）
+  const MAX_TIMEOUT_MS = 2147483647;
+
+  // 记录会员到期时间：取所有会员里【最先到期】的时间戳存入 storage
+  async function recordExpire(list) {
+    let earliest = Infinity;
+    for (const v of list) if (v.remainMs < earliest) earliest = v.remainMs;
+    const ts = Number.isFinite(earliest) ? Date.now() + earliest : 0;
+    await ctx.storage.set('kugou-checkin:vipExpire', ts);
+    return ts;
+  }
+
+  // 失败/无登录态时的重试间隔（10 分钟），保证续签链条永不断
+  const RETRY_MS = 10 * 60 * 1000;
+
+  // 到期驱动的续签循环（自愈版）：任何失败都不会断链，而是排一个短延时重试
+  // → 正常情况排"到期前 RENEW_LEAD_MS"触发 → 今日未领则领取 → 记录最先到期时间 → 重排下一次
+  async function scheduleRenew() {
+    let delay;
+    try {
+      const auth = getAuth();
+      if (!auth.token) {
+        delay = RETRY_MS; // 登录态未就绪：10 分钟后重试，等 token 恢复后自动接上
+      } else {
+        let list = [];
+        try { list = await getVipList(auth); } catch (e) { /* 查询失败按重试处理 */ }
+        const ts = await recordExpire(list);
+        const remainMs = ts ? ts - Date.now() : 0;
+        delay = Math.max(0, remainMs - RENEW_LEAD_MS);
+        if (ts === 0) delay = Math.max(delay, 60 * 60 * 1000); // 无会员时至少 1 小时后再试
+      }
+    } catch (e) {
+      delay = RETRY_MS; // 任何异常：10 分钟后重试，不断链
+    }
+    if (delay > MAX_TIMEOUT_MS) delay = MAX_TIMEOUT_MS;
+
+    // 记录下次续签时间，供设置页展示、便于确认定时器已排上
+    try { await ctx.storage.set('kugou-checkin:nextRenewAt', Date.now() + delay); } catch (e) { /* 忽略 */ }
+
+    setTimeout(async () => {
+      try {
         const auth = getAuth();
         if (auth.token) {
-          clearInterval(timer);
-          runSign({
-            status: { value: 'idle' }, statusText: { value: '自动签到' },
-            logs: { value: [] }, busy: { value: false }, lastSignDate: { value: last },
-            vipList: { value: [] },
-          }, { auto: true });
-        } else if (waited >= 15000) {
-          clearInterval(timer);
+          const last = (await ctx.storage.get('kugou-checkin:lastSignDate')) || '';
+          if (last !== todayStr()) {
+            // 今日未领：后台自动领取一次
+            await runSign({
+              status: { value: 'idle' }, statusText: { value: '自动续签' },
+              logs: { value: [] }, busy: { value: false }, lastSignDate: { value: last },
+              vipList: { value: [] },
+            }, { auto: true });
+          }
+          // 今日已领则保持现状
         }
-      }, 1000);
-    }
+      } catch (e) { /* 静默 */ }
+      finally {
+        scheduleRenew(); // 无论成功失败都重排下一次，链条不断
+      }
+    }, delay);
+  }
+
+  // 启动：轮询等待登录态就绪（最多 15 秒）→ 今日未领则先领一次 → 排第一条续签定时器
+  // 15 秒内未就绪也不放弃：scheduleRenew 会在无登录态时 10 分钟重试，自动接上
+  try {
+    const last = (await ctx.storage.get('kugou-checkin:lastSignDate')) || '';
+    let waited = 0;
+    const timer = setInterval(() => {
+      waited += 1000;
+      if (getAuth().token) {
+        clearInterval(timer);
+        (async () => {
+          if (last !== todayStr()) {
+            await runSign({
+              status: { value: 'idle' }, statusText: { value: '自动签到' },
+              logs: { value: [] }, busy: { value: false }, lastSignDate: { value: last },
+              vipList: { value: [] },
+            }, { auto: true });
+          }
+          scheduleRenew();
+        })();
+      } else if (waited >= 15000) {
+        clearInterval(timer);
+        scheduleRenew(); // 登录态未就绪也先排链，内部会 10 分钟重试
+      }
+    }, 1000);
   } catch (e) { /* 自动签到失败不阻塞 */ }
 }
