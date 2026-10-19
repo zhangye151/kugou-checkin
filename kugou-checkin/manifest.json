@@ -1,8 +1,8 @@
 {
   "id": "kugou-checkin",
   "name": "酷狗签到",
-  "version": "1.1.0",
-  "description": "酷狗概念版每日自动签到（听歌 + 看广告领 VIP），无需激活；新增：SVIP 图标、全程静默签到，不在任务中心提示",
+  "version": "1.2.0",
+  "description": "会员到期前自动续签：记录会员时间，到期前 3 小时自动领取并循环记录，避免长期未重启播放器造成忘记领取会员",
   "author": "kgcheckin-port",
   "main": "index.js",
   "path": "kugou-checkin",
