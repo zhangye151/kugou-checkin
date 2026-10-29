@@ -314,6 +314,10 @@ let signing = false;
 
 // ---------------- 搜索快捷键 ----------------
 // 快捷键 → 打开 echomusic 搜索页并聚焦顶栏搜索框；组合可在插件设置页自定义
+// 按键严格区分：按下 ⌘ 就是 Meta，按下 Ctrl 就是 Ctrl，不做 CmdOrCtrl 合并
+function displayAcc(acc) {
+  return String(acc || '').replace('Meta', '⌘');
+}
 let disposeSearchShortcut = null;
 async function registerSearchShortcut(acc) {
   if (disposeSearchShortcut) { try { disposeSearchShortcut(); } catch (e) {} disposeSearchShortcut = null; }
@@ -451,7 +455,7 @@ function buildComponent() {
     lastSignDate: ref(''),
     vipList: ref([]),
     nextRenewAt: ref(''),
-    searchShortcut: ref('CmdOrCtrl+F'),
+    searchShortcut: ref('Meta+F'),
   };
 
   return defineComponent({
@@ -472,7 +476,7 @@ function buildComponent() {
         try {
           await registerSearchShortcut(acc);
           await ctx.storage.set('kugou-checkin:searchShortcut', acc);
-          toastApi.success('搜索快捷键已保存：' + acc);
+          toastApi.success('搜索快捷键已保存：' + displayAcc(acc));
         } catch (e) {
           toastApi.danger('快捷键无效：' + (e.message || e));
         }
@@ -493,7 +497,8 @@ function buildComponent() {
             return;
           }
           const parts = [];
-          if (e.metaKey || e.ctrlKey) parts.push('CmdOrCtrl');
+          if (e.metaKey) parts.push('Meta');
+          if (e.ctrlKey) parts.push('Ctrl');
           if (e.altKey) parts.push('Alt');
           if (e.shiftKey) parts.push('Shift');
           const k = e.key;
@@ -602,7 +607,7 @@ function buildComponent() {
                 border: '1px solid var(--border-subtle,#e8e8e8)',
                 color: 'var(--color-text-main,#333)', outline: 'none',
               },
-              value: state.searchShortcut.value,
+              value: displayAcc(state.searchShortcut.value),
               placeholder: '点击后直接按下组合键，如 ⌘F',
               onFocus: (e) => { capturing = true; lastAcc = state.searchShortcut.value; state.searchShortcut.value = ''; e.target.placeholder = '正在捕获，按下组合键或 Esc 取消'; },
               onBlur: (e) => { capturing = false; e.target.placeholder = '点击后直接按下组合键，如 ⌘F'; },
@@ -643,10 +648,10 @@ export default async function (appCtx) {
     component: Component,
   });
 
-  // 注册搜索快捷键（默认 CmdOrCtrl+F，可用设置页自定义）
+  // 注册搜索快捷键（默认 Meta+F = Mac ⌘F，可用设置页自定义；⌘ 与 Ctrl 严格区分）
   try {
     const savedAcc = (await ctx.storage.get('kugou-checkin:searchShortcut')) || '';
-    await registerSearchShortcut(savedAcc || 'CmdOrCtrl+F');
+    await registerSearchShortcut(savedAcc || 'Meta+F');
   } catch (e) { /* 快捷键注册失败不阻塞签到 */ }
 
 
