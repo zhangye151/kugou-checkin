@@ -312,6 +312,55 @@ function formatRenewAt(ts) {
 // 全局签到互斥：启动签到、后台续签、手动签到共用，避免并发重复请求
 let signing = false;
 
+// ---------------- 搜索快捷键 ----------------
+// 快捷键 → 打开 echomusic 搜索页并聚焦顶栏搜索框；组合可在插件设置页自定义
+let disposeSearchShortcut = null;
+async function registerSearchShortcut(acc) {
+  if (disposeSearchShortcut) { try { disposeSearchShortcut(); } catch (e) {} disposeSearchShortcut = null; }
+  if (!acc) return;
+  try {
+    disposeSearchShortcut = ctx.shortcuts.register(acc, () => {
+      try {
+        if (ctx.router.currentRoute.value.name !== 'search') {
+          ctx.router.push({ name: 'search' });
+        }
+        // 打开顶栏搜索：echomusic 的搜索框默认折叠成图标按钮，须先触发展开
+        // 折叠态：点击 .tb-search 里的搜索按钮（echomusic 原生展开并聚焦输入框）
+        // 展开态：直接聚焦 .tb-search-input
+        const openSearch = () => {
+          let tries = 0;
+          const attempt = () => {
+            const input = document.querySelector('.tb-search-expanded .tb-search-input')
+              || document.querySelector('.tb-search .tb-search-input');
+            if (input) {
+              input.focus({ preventScroll: true });
+              return;
+            }
+            const btn = document.querySelector('.tb-search .nav-btn');
+            if (btn) {
+              btn.click();
+              // echomusic 展开后异步加载热搜索再聚焦，补一次兜底聚焦
+              setTimeout(() => {
+                const el = document.querySelector('.tb-search-expanded .tb-search-input');
+                if (el) el.focus({ preventScroll: true });
+              }, 350);
+              return;
+            }
+            if (tries < 8) { tries++; setTimeout(attempt, 100); }
+          };
+          attempt();
+        };
+        setTimeout(openSearch, 60);
+        setTimeout(openSearch, 400);
+      } catch (e) { /* 静默 */ }
+    });
+  } catch (e) {
+    // 无效的快捷键组合：不注册，等待设置页重新配置
+    disposeSearchShortcut = null;
+    throw e;
+  }
+}
+
 async function runSign(state, opts = {}) {
   const { auto = false, force = false } = opts;
   if (signing) return;
@@ -402,6 +451,7 @@ function buildComponent() {
     lastSignDate: ref(''),
     vipList: ref([]),
     nextRenewAt: ref(''),
+    searchShortcut: ref('CmdOrCtrl+F'),
   };
 
   return defineComponent({
@@ -410,6 +460,51 @@ function buildComponent() {
       ctx.storage.get('kugou-checkin:nextRenewAt').then(ts => {
         if (ts) state.nextRenewAt.value = formatRenewAt(ts);
       }).catch(() => {});
+      ctx.storage.get('kugou-checkin:searchShortcut').then(acc => {
+        if (acc) state.searchShortcut.value = acc;
+      }).catch(() => {});
+      // 快捷键捕获：点击输入框后直接按下组合键（如 ⌘⇧F），无需手写格式
+      let capturing = false;
+      let lastAcc = '';
+      const saveSearchShortcut = async () => {
+        const acc = String(state.searchShortcut.value || '').trim();
+        if (!acc) { toastApi.warning('请先点击输入框并按下组合键'); return; }
+        try {
+          await registerSearchShortcut(acc);
+          await ctx.storage.set('kugou-checkin:searchShortcut', acc);
+          toastApi.success('搜索快捷键已保存：' + acc);
+        } catch (e) {
+          toastApi.danger('快捷键无效：' + (e.message || e));
+        }
+      };
+      const onShortcutKeydown = (e) => {
+        if (capturing) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.key === 'Escape') {
+            capturing = false;
+            state.searchShortcut.value = lastAcc;
+            e.target.blur();
+            return;
+          }
+          if (e.key === 'Enter') {
+            e.target.blur();
+            saveSearchShortcut();
+            return;
+          }
+          const parts = [];
+          if (e.metaKey || e.ctrlKey) parts.push('CmdOrCtrl');
+          if (e.altKey) parts.push('Alt');
+          if (e.shiftKey) parts.push('Shift');
+          const k = e.key;
+          if (!['Control', 'Shift', 'Alt', 'Meta'].includes(k)) {
+            parts.push(k === ' ' ? 'Space' : (k.length === 1 ? k.toUpperCase() : k));
+          }
+          if (parts.length > 1) state.searchShortcut.value = parts.join('+');
+        } else if (e.key === 'Enter') {
+          saveSearchShortcut();
+        }
+      };
       return () => {
         const st = state.status.value;
         const bg = st === 'success'
@@ -498,6 +593,30 @@ function buildComponent() {
             ? h('div', { style: { fontSize: '12px', color: 'var(--color-text-secondary,#999)', padding: '4px 4px 0' } },
                 '下次自动续签：' + state.nextRenewAt.value)
             : null,
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 4px 0' } }, [
+            h('span', { style: { fontSize: '12px', color: 'var(--color-text-secondary,#999)', flexShrink: 0 } }, '搜索快捷键'),
+            h('input', {
+              style: {
+                flex: 1, minWidth: 0, padding: '5px 8px', borderRadius: '6px', fontSize: '12px',
+                background: 'var(--color-bg-elevated,#f5f5f5)',
+                border: '1px solid var(--border-subtle,#e8e8e8)',
+                color: 'var(--color-text-main,#333)', outline: 'none',
+              },
+              value: state.searchShortcut.value,
+              placeholder: '点击后直接按下组合键，如 ⌘F',
+              onFocus: (e) => { capturing = true; lastAcc = state.searchShortcut.value; state.searchShortcut.value = ''; e.target.placeholder = '正在捕获，按下组合键或 Esc 取消'; },
+              onBlur: (e) => { capturing = false; e.target.placeholder = '点击后直接按下组合键，如 ⌘F'; },
+              onKeydown: onShortcutKeydown,
+            }),
+            h('div', {
+              style: {
+                flexShrink: 0, padding: '5px 12px', borderRadius: '6px', fontSize: '12px',
+                background: 'var(--color-primary,#409eff)', color: '#fff', cursor: 'pointer',
+                userSelect: 'none',
+              },
+              onClick: () => saveSearchShortcut(),
+            }, '保存'),
+          ]),
           h('div', { style: { fontSize: '12px', color: 'var(--color-text-secondary,#999)', padding: '4px 4px 0' } },
             '每日听歌 + 看广告领取 VIP，使用当前登录账号'),
           logsNode,
@@ -523,6 +642,12 @@ export default async function (appCtx) {
     description: '酷狗概念版每日自动签到',
     component: Component,
   });
+
+  // 注册搜索快捷键（默认 CmdOrCtrl+F，可用设置页自定义）
+  try {
+    const savedAcc = (await ctx.storage.get('kugou-checkin:searchShortcut')) || '';
+    await registerSearchShortcut(savedAcc || 'CmdOrCtrl+F');
+  } catch (e) { /* 快捷键注册失败不阻塞签到 */ }
 
 
   // ---------------- 会员续期循环 ----------------
