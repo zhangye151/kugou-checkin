@@ -58,7 +58,7 @@ README.md
   - RSA（1024 位，无填充公钥加密）：BigInt 模幂
 - 网络请求通过 `ctx.net.fetch`，登录态通过 `#app` 的 Vue app 实例和 pinia 状态读取。
 - 续签循环为到期驱动：每次领取后记录最先到期的会员时间，排一个到期前 3 小时的定时器，触发时今日未领则自动领取并重排；任何失败都会 10 分钟后自动重试，链条不会断。
-- 搜索快捷键通过插件 API `ctx.shortcuts.register` 注册（窗口内生效，`CmdOrCtrl` 自动适配 Mac/Windows）；适配 echomusic 折叠式搜索框，自动触发展开再聚焦输入框。
+- 搜索快捷键通过插件 API `ctx.shortcuts.register` 注册（窗口内生效，`Cmd`Or`Ctrl` 自动适配 Mac/Windows）；适配 echomusic 折叠式搜索框，自动触发展开再聚焦输入框。
 
 ## 注意
 
