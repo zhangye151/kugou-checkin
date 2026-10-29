@@ -25,13 +25,16 @@
 https://github.com/zhangye151/kugou-checkin
 ```
 方式二
-把整个 `kugou-checkin` 文件夹放到 EchoMusic 的插件目录里，然后在插件管理页启用：
-如 MacOS
+把仓库里 `kugou-checkin` 文件夹（内含 index.js、manifest.json、icon.svg）**直接放到 EchoMusic 的插件目录 `plugins` 下**（不要再多套一层 kugou-checkin），然后在插件管理页启用：
 ```
-~/Library/Application Support/echo-music/plugins/kugou-checkin/
+~/Library/Application Support/echo-music/plugins/
+└── kugou-checkin/
+    ├── index.js
+    ├── manifest.json
+    └── icon.svg
 ```
 
-目录名需与 manifest 中的 `id` 一致。
+目录名需与 manifest 中的 `id` 一致（即 `kugou-checkin`）。
 
 ## 文件
 
