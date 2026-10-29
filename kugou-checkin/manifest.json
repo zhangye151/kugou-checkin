@@ -2,7 +2,7 @@
   "id": "kugou-checkin",
   "name": "酷狗签到",
   "version": "1.3.0",
-  "description": "每日自动签到领会员，会员到期前自动续签，支持自定义搜索快捷键",
+  "description": "每日自动签到领会员，会员到期前自动续签，新增：支持自定义搜索快捷键",
   "author": "kgcheckin-port",
   "main": "index.js",
   "path": "kugou-checkin",
